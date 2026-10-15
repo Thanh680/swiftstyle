@@ -1,0 +1,34 @@
+{% comment %}
+  App embed block SwiftStyle (ARCHITECTURE-TECHNIQUE.md § 7.1).
+  Le marchand l'active dans l'éditeur de thème : aucune modification du code du thème.
+  data-target place le bouton juste après le formulaire d'ajout au panier.
+{% endcomment %}
+{% if template.name == 'product' and product and block.settings.public_key != blank %}
+  <div id="swiftstyle-root"
+       data-product-id="{{ product.id }}"
+       data-shop-key="{{ block.settings.public_key | escape }}"
+       data-target="{{ block.settings.target | escape }}"></div>
+  <script src="https://cdn.swiftstyle.app/v1/widget.js" async></script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SwiftStyle",
+  "target": "body",
+  "settings": [
+    {
+      "type": "text",
+      "id": "public_key",
+      "label": "Clé publique SwiftStyle",
+      "info": "Commence par pk_. Transmise par l'équipe SwiftStyle."
+    },
+    {
+      "type": "text",
+      "id": "target",
+      "label": "Placer le bouton après",
+      "default": "form[action*='/cart/add']",
+      "info": "Sélecteur CSS. À modifier seulement si le bouton n'apparaît pas au bon endroit."
+    }
+  ]
+}
+{% endschema %}
