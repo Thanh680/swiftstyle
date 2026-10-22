@@ -11,3 +11,6 @@ public/v1/
 
 .env
 .env.local
+
+# Vitrine GitHub Pages (GITHUB_PAGES=1 npm run build)
+/out/

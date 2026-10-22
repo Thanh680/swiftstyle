@@ -1,0 +1,48 @@
+# Vitrine statique sur GitHub Pages : https://thanh680.github.io/swiftstyle/
+# Prérequis (une fois, dans les réglages du dépôt) : dépôt public, et Settings > Pages > Source : GitHub Actions.
+# Seule la page d'accueil est publiée : l'API et /embed ont besoin d'un serveur, ils sont retirés de cette construction.
+name: Vitrine GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Retirer les parties serveur (API, /embed)
+        run: rm -rf src/app/api src/app/embed
+      - name: Construire la vitrine
+        run: npm run build
+        env:
+          GITHUB_PAGES: "1"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

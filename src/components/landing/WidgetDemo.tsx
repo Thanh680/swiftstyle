@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { DEMO_ARTICLES, estimateBody, type BodyKey, type DemoArticle, type FitPreference } from "@/lib/recommendation";
+import { asset } from "@/lib/asset";
 import { recommend, type Measures } from "./figures";
 
 /**
@@ -45,10 +46,10 @@ const PRODUCTS: Record<DemoArticle, Product> = {
     care: "100 % coton biologique. Lavage en machine à 30 °C.",
     detail: { x: 50, y: 50, zoom: 2.2 },
     colors: [
-      { name: "Blanc", src: "/demo/tee-blanc.webp", swatch: "#F4F3EE" },
-      { name: "Citron", src: "/demo/tee-citron.webp", swatch: "#E3EB66" },
-      { name: "Corail", src: "/demo/tee-corail.webp", swatch: "#F2694B" },
-      { name: "Encre", src: "/demo/tee-encre.webp", swatch: "#2B2E35" },
+      { name: "Blanc", src: asset("/demo/tee-blanc.webp"), swatch: "#F4F3EE" },
+      { name: "Citron", src: asset("/demo/tee-citron.webp"), swatch: "#E3EB66" },
+      { name: "Corail", src: asset("/demo/tee-corail.webp"), swatch: "#F2694B" },
+      { name: "Encre", src: asset("/demo/tee-encre.webp"), swatch: "#2B2E35" },
     ],
   },
   jean: {
@@ -59,7 +60,7 @@ const PRODUCTS: Record<DemoArticle, Product> = {
     desc: "Denim stretch délavé, taille mi-haute, jambe droite.",
     care: "98 % coton, 2 % élasthanne. Lavage à 30 °C, sur l'envers.",
     detail: { x: 40, y: 12, zoom: 2.6 },
-    colors: [{ name: "Bleu délavé", src: "/demo/jean-bleu.webp", swatch: "#7FA3CF" }],
+    colors: [{ name: "Bleu délavé", src: asset("/demo/jean-bleu.webp"), swatch: "#7FA3CF" }],
   },
   // La boutique vend un sweat, mesuré avec le guide des tailles de la « veste » d'exemple.
   veste: {
@@ -71,10 +72,10 @@ const PRODUCTS: Record<DemoArticle, Product> = {
     care: "80 % coton, 20 % polyester. Lavage en machine à 30 °C, sur l'envers.",
     detail: { x: 50, y: 48, zoom: 2.2 },
     colors: [
-      { name: "Blanc", src: "/demo/sweat-blanc.webp", swatch: "#F4F3EE" },
-      { name: "Sauge", src: "/demo/sweat-sauge.webp", swatch: "#A4B795" },
-      { name: "Rouille", src: "/demo/sweat-rouille.webp", swatch: "#B5613E" },
-      { name: "Encre", src: "/demo/sweat-encre.webp", swatch: "#2B2E35" },
+      { name: "Blanc", src: asset("/demo/sweat-blanc.webp"), swatch: "#F4F3EE" },
+      { name: "Sauge", src: asset("/demo/sweat-sauge.webp"), swatch: "#A4B795" },
+      { name: "Rouille", src: asset("/demo/sweat-rouille.webp"), swatch: "#B5613E" },
+      { name: "Encre", src: asset("/demo/sweat-encre.webp"), swatch: "#2B2E35" },
     ],
   },
 };

@@ -1,8 +1,10 @@
+import { asset } from "@/lib/asset";
+
 export function SiteHeader() {
   return (
     <header className="nav">
       <a className="logo" href="#top" aria-label="SwiftStyle, accueil">
-        <img src="/logo-swiftstyle.webp" alt="" width={285} height={173} />
+        <img src={asset("/logo-swiftstyle.webp")} alt="" width={285} height={173} />
       </a>
       <nav aria-label="Navigation principale">
         <ul>

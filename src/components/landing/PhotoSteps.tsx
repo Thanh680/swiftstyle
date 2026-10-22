@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { DEMO_ARTICLES, estimateBody, type DemoArticle } from "@/lib/recommendation";
+import { asset } from "@/lib/asset";
 import { body, garment, geo, pointsSVG, recommend, sizeDims, type Marks } from "./figures";
 
 /**
@@ -26,7 +27,7 @@ const PEOPLE: { name: string; h: number; w: number; article: DemoArticle; photo:
     w: 80,
     article: "jean",
     photo: {
-      src: "/photos/aurelien.webp",
+      src: asset("/photos/aurelien.webp"),
       size: [611, 1024],
       head: 85,
       feet: 925,
@@ -41,7 +42,7 @@ const PEOPLE: { name: string; h: number; w: number; article: DemoArticle; photo:
     w: 57,
     article: "tee",
     photo: {
-      src: "/photos/lea.webp",
+      src: asset("/photos/lea.webp"),
       size: [1194, 2000],
       head: 173,
       feet: 1915,

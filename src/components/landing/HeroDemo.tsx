@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { estimateBody, type BodyKey, type FitPreference, type SizeResult } from "@/lib/recommendation";
+import { asset } from "@/lib/asset";
 import { personSVG, pointsSVG, recommend } from "./figures";
 
 /**
@@ -45,7 +46,7 @@ const TITLES: Record<Step, string> = { 1: "Votre morphologie", 2: "Vos mensurati
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 // Le t-shirt SwiftStyle (photo détourée), et la personne « photographiée ».
-const TEE = "/demo/tee-blanc.webp";
+const TEE = asset("/demo/tee-blanc.webp");
 const shotBody = withBody(SHOT.h, SHOT.w);
 const PHOTO =
   personSVG(shotBody, { skin: "#E8BE9C", hair: "#C9A15E", style: "long", top: "#3A3D42", pants: "#2E4B6E", shoes: "#B3263A" }) +
@@ -95,7 +96,7 @@ const VIEWBOX = `100 ${VB_Y} 520 ${VB_H}`;
  * Il passe par-dessus le buste, le bras plié et l'épaule du bras tombant, mais sous l'avant-bras
  * et la main de celui-ci : il est donc rangé dans #groupe-bras-gauche, juste après #bras-gauche.
  */
-const TEE_WORN = `<g id="tee-porte"><image href="/demo/tee-mannequin.webp" x="218.6" y="160" width="268.6" height="301.2" preserveAspectRatio="none"/></g>`;
+const TEE_WORN = `<g id="tee-porte"><image href="${asset("/demo/tee-mannequin.webp")}" x="218.6" y="160" width="268.6" height="301.2" preserveAspectRatio="none"/></g>`;
 
 const pill = (w: number) =>
   `<g class="hd-pill"><rect x="0" y="-20" width="${w}" height="40" rx="20"/><text x="${w / 2}" y="8.5" text-anchor="middle"></text></g>`;
@@ -156,7 +157,7 @@ export function HeroDemo() {
   // Le mannequin est chargé dans la page (et non en <img>) pour déformer ses groupes.
   useEffect(() => {
     let alive = true;
-    fetch("/mannequin.svg")
+    fetch(asset("/mannequin.svg"))
       .then((r) => (r.ok ? r.text() : ""))
       .then((t) => alive && setSvg(t))
       .catch(() => {});
