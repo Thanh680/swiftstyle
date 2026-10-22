@@ -9,6 +9,8 @@ import { useHydrated } from "@/lib/use-hydrated";
 const PLATFORMS = ["Shopify", "WooCommerce", "PrestaShop", "Magento / Adobe Commerce", "Salesforce Commerce Cloud", "Autre"];
 const VOLUMES = ["Moins de 1 000", "1 000 à 10 000", "10 000 à 50 000", "Plus de 50 000"];
 
+// Déroulé de l'essai : masqué tant que le projet ne peut pas garantir ces étapes. Passer à true pour l'afficher.
+const SHOW_STEPS = false;
 const STEPS = [
   { title: "Un appel de 30 minutes", text: "Pour comprendre votre catalogue, vos coupes et vos motifs de retour." },
   { title: "L'installation sur quelques fiches produit", text: "Le widget est habillé à vos couleurs et branché sur vos guides des tailles." },
@@ -53,20 +55,19 @@ export function TrialSignup() {
         <h2 className="display" id="signup-title">
           Testez-le sur votre boutique.
         </h2>
-        <p className="signup-lead">
-          Laissez-nous vos coordonnées. On étudie votre catalogue et vos guides des tailles, puis on vous propose un essai sur une sélection
-          de produits.
-        </p>
-        <ol className="steps">
-          {STEPS.map((s) => (
-            <li key={s.title}>
-              <div>
-                <strong>{s.title}</strong>
-                <span>{s.text}</span>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <p className="signup-lead">Vous souhaitez collaborer avec nous ? Laissez-nous vos coordonnées et nous reviendrons vers vous.</p>
+        {SHOW_STEPS && (
+          <ol className="steps">
+            {STEPS.map((s) => (
+              <li key={s.title}>
+                <div>
+                  <strong>{s.title}</strong>
+                  <span>{s.text}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
 
       <div className={status === "sent" ? "form sent" : "form"}>

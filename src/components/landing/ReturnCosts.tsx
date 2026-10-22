@@ -42,7 +42,7 @@ function useHangingTags(rackRef: RefObject<HTMLDivElement | null>) {
       vy: 0,
       dir: i % 2 ? 1 : -1,
       m: 0.75 + ((i * 37) % 10) / 20,
-      delay: i * 110,
+      delay: i * 60,
       active: false,
     }));
     type Item = (typeof items)[number];
@@ -58,16 +58,29 @@ function useHangingTags(rackRef: RefObject<HTMLDivElement | null>) {
     const listeners = new AbortController();
     const signal = listeners.signal;
     items.forEach((it) => {
-      // Coup de main : on pousse l'étiquette en la survolant
+      // Coup de main : on attrape l'étiquette (clic maintenu) et on la pousse en bougeant.
+      // Le simple survol ne la fait pas bouger.
       it.tag.addEventListener("pointermove", (e) => {
-        if (e.pointerType === "mouse") it.w -= (clamp(e.movementX, -30, 30) * 0.0016) / it.m;
+        if (it.tag.hasPointerCapture(e.pointerId)) it.w -= (clamp(e.movementX, -30, 30) * 0.0016) / it.m;
       }, { signal });
-      it.tag.addEventListener("pointerdown", () => {
+      it.tag.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        // Capture : on garde la main même si le pointeur sort de l'étiquette
+        it.tag.setPointerCapture(e.pointerId);
         it.w += it.dir * 0.05;
         it.vy += 4;
       }, { signal });
     });
     mobile.addEventListener("change", () => items.forEach(paint), { signal });
+
+    // Les étiquettes attendent hors de l'écran, remontées contre le rail : elles ne
+    // sont jamais vues immobiles avant leur chute.
+    items.forEach((it) => {
+      it.y = -lenOf(it) * 0.9;
+      it.vy = 0;
+      it.w = it.dir * 0.012;
+      paint(it);
+    });
 
     let running = false;
     let dropped = false;
@@ -113,21 +126,16 @@ function useHangingTags(rackRef: RefObject<HTMLDivElement | null>) {
           lastY = scrollY;
           lastV = 0;
           startT = performance.now();
-          if (!dropped) {
-            // Première apparition : les étiquettes tombent et rebondissent au bout de leur fil
-            dropped = true;
-            items.forEach((it) => {
-              it.y = -lenOf(it) * 0.9;
-              it.vy = 0;
-              it.w = it.dir * 0.012;
-              it.active = false;
-              paint(it);
-            });
-          } else items.forEach((it) => (it.active = true));
+          // Première apparition : les étiquettes tombent l'une après l'autre et rebondissent au
+          // bout de leur fil. Ensuite, elles reprennent leur balancement là où elles l'ont laissé.
+          if (dropped) items.forEach((it) => (it.active = true));
+          dropped = true;
           raf = requestAnimationFrame(frame);
         } else if (!entry?.isIntersecting) running = false;
       },
-      { threshold: 0.15 },
+      // La chute commence un peu avant que le rail n'entre à l'écran : quand il apparaît,
+      // les étiquettes tombent déjà.
+      { threshold: 0, rootMargin: "0px 0px 150px 0px" },
     );
     observer.observe(rack);
 

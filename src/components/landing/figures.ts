@@ -1,7 +1,7 @@
 import { DEMO_ARTICLES, recommendSize, type Body, type DemoArticle, type FitPreference } from "@/lib/recommendation";
 
 /**
- * Dessins de la page d'accueil : mannequin en papier journal, vêtements, règle,
+ * Dessins de la page d'accueil : mannequin en papier journal, vêtements,
  * camions, personnes de la section photo. Fonctions pures qui renvoient du SVG
  * en texte, rendues avec dangerouslySetInnerHTML. Reprises telles quelles du site v0.2.
  */
@@ -67,6 +67,7 @@ export const SVG_DEFS = `
   <pattern id="wool" width="14" height="14" patternUnits="userSpaceOnUse"><rect width="14" height="14" fill="#B5613E"/><path d="M0 7h14M7 0v14" stroke="rgba(255,255,255,.14)" stroke-width="2"/></pattern>
   ${knit("knitLime", "#E3EB66")}${knit("knitCoral", "#FF6B4A")}
   <filter id="cut" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="3" dy="5" stdDeviation=".2" flood-color="#000" flood-opacity=".22"/></filter>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000" flood-opacity=".16"/></filter>
   <linearGradient id="snapWall" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E2DCCF"/><stop offset="1" stop-color="#C9C1B0"/></linearGradient>
   <linearGradient id="snapLight" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".16"/></linearGradient>
   <radialGradient id="snapVignette" cx=".5" cy=".45" r=".75"><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient>
@@ -176,7 +177,8 @@ const mirror = (R: [number, number][], cx: number, Y: (f: number) => number) => 
     .map(([x, f]): Point => [cx - x, Y(f)]),
 });
 
-function draw(parts: Part[], fill: string, border = 9, extra = ""): string {
+/** `paper` : découpage en papier (contour blanc, ombre portée nette). Sans : ombre douce de photo produit. */
+function draw(parts: Part[], fill: string, border = 9, extra = "", paper = true): string {
   const shape = (p: Part, under: boolean) => {
     if (p.t === "l")
       return `<line x1="${f1(p.a[0])}" y1="${f1(p.a[1])}" x2="${f1(p.b[0])}" y2="${f1(p.b[1])}" stroke="${under ? "#fff" : p.fill || fill}" stroke-width="${f1(p.w + (under ? border : 0))}" stroke-linecap="round"/>`;
@@ -185,6 +187,7 @@ function draw(parts: Part[], fill: string, border = 9, extra = ""): string {
     if (p.t === "e") return `<ellipse cx="${f1(p.cx)}" cy="${f1(p.cy)}" rx="${f1(p.rx)}" ry="${f1(p.ry)}" ${paint}/>`;
     return `<circle cx="${f1(p.cx)}" cy="${f1(p.cy)}" r="${f1(p.r)}" ${paint}/>`;
   };
+  if (!paper) return `<g filter="url(#soft)">${parts.map((p) => shape(p, false)).join("")}${extra}</g>`;
   return `<g filter="url(#cut)"><g>${parts.map((p) => shape(p, true)).join("")}</g><g>${parts.map((p) => shape(p, false)).join("")}</g>${extra}</g>`;
 }
 
@@ -217,7 +220,8 @@ export function body(g: Geo): string {
   return draw(parts, "url(#news)");
 }
 
-export function garment(art: DemoArticle, g: Geo, sz: Body, fillOverride?: string): string {
+/** `photo` : rendu des photos de la fiche produit de la démo, sans l'effet collage (scotch, découpe papier). */
+export function garment(art: DemoArticle, g: Geo, sz: Body, fillOverride?: string, photo = false): string {
   const { cx, Y, half } = g;
   if (art === "jean") {
     const gw = half(sz.waist!) + 4;
@@ -231,9 +235,12 @@ export function garment(art: DemoArticle, g: Geo, sz: Body, fillOverride?: strin
       [ax - hem, 0.972],
     ];
     const { right, left } = mirror(R, cx, Y);
-    const extra = `<path d="M${f1(cx - gw + 3)},${f1(Y(0.418))} L${f1(cx + gw - 3)},${f1(Y(0.418))} M${f1(cx)},${f1(Y(0.418))} L${f1(cx)},${f1(Y(0.5))}" stroke="rgba(255,255,255,.5)" stroke-width="1.6" stroke-dasharray="4 3" fill="none"/>
-        <rect x="${f1(cx + gw - 30)}" y="${f1(Y(0.392) - 9)}" width="34" height="12" fill="rgba(232,240,106,.85)" transform="rotate(-18 ${f1(cx + gw - 13)} ${f1(Y(0.392) - 3)})"/>`;
-    return draw([{ t: "p", d: poly([...right, [cx, Y(0.585)], ...left]) }], fillOverride || "url(#denim)", 8, extra);
+    const extra =
+      `<path d="M${f1(cx - gw + 3)},${f1(Y(0.418))} L${f1(cx + gw - 3)},${f1(Y(0.418))} M${f1(cx)},${f1(Y(0.418))} L${f1(cx)},${f1(Y(0.5))}" stroke="rgba(255,255,255,.5)" stroke-width="1.6" stroke-dasharray="4 3" fill="none"/>` +
+      (!photo
+        ? `<rect x="${f1(cx + gw - 30)}" y="${f1(Y(0.392) - 9)}" width="34" height="12" fill="rgba(232,240,106,.85)" transform="rotate(-18 ${f1(cx + gw - 13)} ${f1(Y(0.392) - 3)})"/>`
+        : "");
+    return draw([{ t: "p", d: poly([...right, [cx, Y(0.585)], ...left]) }], fillOverride || "url(#denim)", 8, extra, !photo);
   }
   const v = art === "veste";
   const gc = half(sz.chest!) + (v ? 8 : 5);
@@ -258,30 +265,16 @@ export function garment(art: DemoArticle, g: Geo, sz: Body, fillOverride?: strin
     else parts.push(L(a.S, lerp(a.S, a.E, 0.42), g.armW + 15 + ease));
   });
   parts.push({ t: "p", d: poly([[cx, Y(v ? 0.2 : 0.145)], ...right, [cx, Y(hemY + 0.004)], ...left]) });
-  let extra = `<rect x="${f1(cx - gs - 4)}" y="${f1(Y(0.162) - 10)}" width="36" height="12" fill="rgba(232,240,106,.85)" transform="rotate(-28 ${f1(cx - gs + 14)} ${f1(Y(0.162) - 4)})"/>`;
+  let extra = !photo
+    ? `<rect x="${f1(cx - gs - 4)}" y="${f1(Y(0.162) - 10)}" width="36" height="12" fill="rgba(232,240,106,.85)" transform="rotate(-28 ${f1(cx - gs + 14)} ${f1(Y(0.162) - 4)})"/>`
+    : "";
   if (v) {
     const n = g.neckH + 6;
     extra +=
       `<path d="M${f1(cx - n)},${f1(Y(0.116))} L${f1(cx - 2)},${f1(Y(0.34))} M${f1(cx + n)},${f1(Y(0.116))} L${f1(cx + 2)},${f1(Y(0.34))} M${f1(cx)},${f1(Y(0.34))} L${f1(cx)},${f1(Y(0.59))}" stroke="rgba(0,0,0,.35)" stroke-width="1.6" fill="none"/>` +
       [0.39, 0.45, 0.51].map((f) => `<circle cx="${f1(cx + 6)}" cy="${f1(Y(f))}" r="2.6" fill="#2a1a10"/>`).join("");
   }
-  return draw(parts, fill, 8, extra);
-}
-
-export function ruler(h: number): string {
-  const yAt = (c: number) => BASE - c * PPC;
-  let s = `<g fill="currentColor" ${FONT} font-size="11"><line x1="44" y1="${BASE}" x2="44" y2="${f1(yAt(205))}" stroke="currentColor" stroke-width="1.5"/>`;
-  for (let c = 0; c <= 200; c += 10) {
-    const y = f1(yAt(c));
-    const long = c % 50 === 0;
-    s += `<line x1="${long ? 30 : 36}" y1="${y}" x2="44" y2="${y}" stroke="currentColor" stroke-width="1.2"/>`;
-    if (long && c) s += `<text x="26" y="${f1(yAt(c) + 4)}" text-anchor="end">${c}</text>`;
-  }
-  const y = f1(yAt(h));
-  s += `<line x1="44" y1="${y}" x2="300" y2="${y}" stroke="currentColor" stroke-width="1.2" stroke-dasharray="5 4"/>
-      <rect x="50" y="${f1(yAt(h) - 22)}" width="64" height="18" rx="9" fill="#E8F06A" stroke="#0E0E0E" stroke-width="1.5"/>
-      <text x="82" y="${f1(yAt(h) - 9)}" text-anchor="middle" fill="#0E0E0E" font-weight="700">${h} cm</text></g>`;
-  return s;
+  return draw(parts, fill, 8, extra, !photo);
 }
 
 /** Mensurations du milieu de la taille `i` du guide, pour dessiner le vêtement porté. */
@@ -400,20 +393,35 @@ export function personSVG(m: Measures, look: Look): string {
   return `<g filter="url(#snapGrain)">${s}<rect x="0" y="60" width="300" height="580" fill="url(#snapLight)"/><rect x="0" y="60" width="300" height="580" fill="url(#snapVignette)"/></g>`;
 }
 
-export function pointsSVG(m: Measures): string {
+/** Repères de mesure, en unités du dessin : [hauteur, demi-largeur du corps] à chaque niveau. */
+export type Marks = Record<"shoulder" | "chest" | "waist" | "hips", [y: number, half: number]>;
+
+/** Repères posés sur la personne : ceux de `geo` pour un dessin, ou `marks` relevés sur une vraie photo. */
+export function pointsSVG(m: Measures, marks?: Marks): string {
   const g = geo(m, 150);
   const { cx, Y } = g;
+  const k: Marks = marks ?? {
+    shoulder: [Y(0.168), g.shoulderH],
+    chest: [Y(0.29), g.chestH],
+    waist: [Y(0.4), g.waistH],
+    hips: [Y(0.505), g.hipH],
+  };
   const dot = (x: number, y: number) => `<circle cx="${f1(x)}" cy="${f1(y)}" r="5" fill="#E8F06A" stroke="#0E0E0E" stroke-width="2"/>`;
-  const row = (i: number, w: number, y: number, label: string) =>
-    `<g class="pt" style="--i:${i}"><line x1="${f1(cx - w - 4)}" y1="${f1(y)}" x2="${f1(cx + w + 4)}" y2="${f1(y)}" stroke="#E8F06A" stroke-width="2.5" stroke-dasharray="6 4"/>${dot(cx - w, y)}${dot(cx + w, y)}
-        <rect x="${f1(cx + w + 10)}" y="${f1(y - 11)}" width="${label.length * 7.6 + 14}" height="22" rx="11" fill="#0E0E0E"/><text x="${f1(cx + w + 17)}" y="${f1(y + 5)}" ${FONT} font-size="13" font-weight="700" fill="#E8F06A">${label}</text></g>`;
+  const row = (i: number, [y, w]: [number, number], label: string) => {
+    // L'étiquette reste dans le cadre de la photo (300 de large), quitte à mordre sur le corps.
+    const lw = label.length * 7.6 + 14;
+    const lx = Math.min(cx + w + 10, 296 - lw);
+    return `<g class="pt" style="--i:${i}"><line x1="${f1(cx - w - 4)}" y1="${f1(y)}" x2="${f1(cx + w + 4)}" y2="${f1(y)}" stroke="#E8F06A" stroke-width="2.5" stroke-dasharray="6 4"/>${dot(cx - w, y)}${dot(cx + w, y)}
+        <rect x="${f1(lx)}" y="${f1(y - 11)}" width="${lw}" height="22" rx="11" fill="#0E0E0E"/><text x="${f1(lx + 7)}" y="${f1(y + 5)}" ${FONT} font-size="13" font-weight="700" fill="#E8F06A">${label}</text></g>`;
+  };
   const top = Y(0);
   const foot = Y(0.99);
+  const [sy, sw] = k.shoulder;
   return (
     `<g class="pt" style="--i:0"><line x1="26" y1="${f1(top)}" x2="26" y2="${f1(foot)}" stroke="#E8F06A" stroke-width="2.5"/><line x1="18" y1="${f1(top)}" x2="34" y2="${f1(top)}" stroke="#E8F06A" stroke-width="2.5"/><line x1="18" y1="${f1(foot)}" x2="34" y2="${f1(foot)}" stroke="#E8F06A" stroke-width="2.5"/></g>
-        <g class="pt" style="--i:1">${dot(cx - g.shoulderH, Y(0.168))}${dot(cx + g.shoulderH, Y(0.168))}</g>` +
-    row(2, g.chestH, Y(0.29), `Poitrine ${m.chest}`) +
-    row(3, g.waistH, Y(0.4), `Taille ${m.waist}`) +
-    row(4, g.hipH, Y(0.505), `Hanches ${m.hips}`)
+        <g class="pt" style="--i:1">${dot(cx - sw, sy)}${dot(cx + sw, sy)}</g>` +
+    row(2, k.chest, `Poitrine ${m.chest}`) +
+    row(3, k.waist, `Taille ${m.waist}`) +
+    row(4, k.hips, `Hanches ${m.hips}`)
   );
 }
