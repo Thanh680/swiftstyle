@@ -33,6 +33,8 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: "1"
+          # Adresse publique : les aperçus de lien (Teams, Slack…) veulent l'URL complète de l'image.
+          APP_ORIGIN: https://thanh680.github.io
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out

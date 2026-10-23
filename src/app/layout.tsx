@@ -23,6 +23,9 @@ const jakarta = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: "SwiftStyle",
+  // Les aperçus de lien (Teams, Slack, réseaux sociaux) veulent l'adresse complète de l'image
+  // (app/opengraph-image.png) : elle part de l'adresse publique du site, APP_ORIGIN (voir .env.example).
+  metadataBase: new URL(process.env.APP_ORIGIN || "http://localhost:3000"),
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

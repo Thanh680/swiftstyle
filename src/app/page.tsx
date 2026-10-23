@@ -14,10 +14,16 @@ import "@/components/landing/landing.css";
 
 // Page d'accueil (site v0.2) : présentation de SwiftStyle aux marques et formulaire d'essai.
 
+const title = "SwiftStyle : la bonne taille dès la première commande";
+const description =
+  "Un widget qui conseille la bonne taille à vos clients, à partir d'une photo ou de quelques mesures. Moins d'erreurs de taille, moins de retours.";
+
+// L'image d'aperçu vient de app/opengraph-image.png (ajoutée automatiquement par Next).
 export const metadata: Metadata = {
-  title: "SwiftStyle : la bonne taille dès la première commande",
-  description:
-    "Un widget qui conseille la bonne taille à vos clients, à partir d'une photo ou de quelques mesures. Moins d'erreurs de taille, moins de retours.",
+  title,
+  description,
+  openGraph: { title, description, siteName: "SwiftStyle", locale: "fr_FR", type: "website" },
+  twitter: { card: "summary_large_image", title, description },
 };
 
 export default function HomePage() {
