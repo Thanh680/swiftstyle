@@ -1,36 +1,47 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { estimateBody, type BodyKey, type FitPreference, type SizeResult } from "@/lib/recommendation";
+import { estimateBody, estimateBodyExact, type BodyKey, type FitPreference, type SizeResult } from "@/lib/recommendation";
 import { asset } from "@/lib/asset";
 import { personSVG, pointsSVG, recommend } from "./figures";
 
 /**
- * Animation du haut de page : un faux curseur fait deux essais du widget sur un t-shirt.
- * 1. « Mes mesures » : taille et poids, puis les tours de poitrine, taille et hanches et la coupe
- *    préférée. Le mannequin suit chaque réglage (règle de hauteur, rubans de mesure).
- * 2. « Caméra » : la modale se retourne, il importe une photo, l'analyse remplit les mesures.
- * Le logo « Swift / Style » n'apparaît qu'au premier clic sur le bouton.
+ * Animation du haut de page : un faux curseur essaie le widget sur un t-shirt.
+ * 1. Il importe une photo et règle sa taille, le seul réglage demandé.
+ * 2. L'analyse de la photo remplit seule, en décalé, les tours de poitrine, de taille et de hanches :
+ *    leurs curseurs sont verrouillés et le faux curseur s'écarte de la modale.
+ * 3. La taille conseillée s'affiche et le mannequin enfile le t-shirt.
+ * Le mannequin suit chaque valeur (règle de hauteur, rubans de mesure).
+ * Le logo « Swift / Style » n'apparaît qu'au clic sur le bouton.
  * La scène est entièrement décorative : aucun vrai contrôle, le bouton compris (seul le faux curseur « clique »).
  * Les tailles viennent du vrai moteur de recommandation, avec le guide d'exemple du t-shirt.
  */
 
-type Face = "mesures" | "photo";
+/** Le poids reste interne : c'est la corpulence lue sur la photo, qui élargit le mannequin, sans curseur. */
 type Key = "h" | "w" | BodyKey;
+type Shown = "h" | BodyKey;
 type Vals = Record<Key, number>;
 type Step = 1 | 2 | 3;
 type Scene = "off" | "intro" | "modal" | "out";
 
-const withBody = (h: number, w: number): Vals => ({ h, w, ...estimateBody(h, w) });
+/**
+ * Tours non arrondis : le mannequin les compare à chaque image à l'estimation (voir `morph`), et un
+ * arrondi au centimètre le ferait trembler pendant l'analyse. L'affichage arrondit de son côté.
+ */
+const withBody = (h: number, w: number): Vals => ({ h, w, ...estimateBodyExact(h, w) });
 /** Taille et poids pour lesquels public/mannequin.svg est dessiné. */
 const BASE = withBody(172, 68);
+/**
+ * Silhouette de départ, mince mais plausible : l'analyse l'étoffe jusqu'à une carrure proche de
+ * celle du dessin, pour laquelle le t-shirt porté est ajusté.
+ */
+const START = withBody(172, 60);
 /** Ce que l'analyse « lit » sur la photo. */
 const SHOT: Vals = { h: 178, w: 74, chest: 99, waist: 83, hips: 101 };
 
-const RANGE: Record<Key, [number, number]> = { h: [145, 205], w: [40, 130], chest: [70, 130], waist: [55, 125], hips: [75, 135] };
-const FIELD: Record<Key, { label: string; unit: string }> = {
+const RANGE: Record<Shown, [number, number]> = { h: [145, 205], chest: [70, 130], waist: [55, 125], hips: [75, 135] };
+const FIELD: Record<Shown, { label: string; unit: string }> = {
   h: { label: "Taille", unit: "cm" },
-  w: { label: "Poids", unit: "kg" },
   chest: { label: "Tour de poitrine", unit: "cm" },
   waist: { label: "Tour de taille", unit: "cm" },
   hips: { label: "Tour de hanches", unit: "cm" },
@@ -42,19 +53,29 @@ const FITS: { value: FitPreference; label: string }[] = [
   { value: "normale", label: "Normaux" },
   { value: "ample", label: "Amples" },
 ];
-const TITLES: Record<Step, string> = { 1: "Votre morphologie", 2: "Vos mensurations", 3: "Votre taille" };
+const TITLES: Record<Step, string> = { 1: "Votre photo", 2: "Analyse des mensurations", 3: "Votre taille" };
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+/** Part de chaque tour déjà lue sur la photo, de 0 à 1 ; 1 en dehors de l'analyse. */
+type Read = Record<BodyKey, number>;
+const READ_ALL: Read = { chest: 1, waist: 1, hips: 1 };
+/** Tours en train de se remplir : leur curseur et leur ruban sont mis en avant. */
+const filling = (read: Read) => BODY.filter((k) => read[k] > 0 && read[k] < 1);
+/**
+ * Valeur affichée (curseur et ruban) : pendant l'analyse, chaque tour monte depuis le bas de son
+ * curseur jusqu'à la valeur lue. Le mannequin, lui, change de silhouette (voir `blend`).
+ */
+const shown = (v: Vals, read: Read, k: Shown) => (k === "h" ? v.h : RANGE[k][0] + (v[k] - RANGE[k][0]) * read[k]);
 
-// Le t-shirt SwiftStyle (photo détourée), et la personne « photographiée ».
+// Le t-shirt SwiftStyle (photo détourée), et la personne « photographiée » (tours arrondis : ils s'affichent sur la photo).
 const TEE = asset("/demo/tee-blanc.webp");
-const shotBody = withBody(SHOT.h, SHOT.w);
+const shotBody = { h: SHOT.h, w: SHOT.w, ...estimateBody(SHOT.h, SHOT.w) };
 const PHOTO =
   personSVG(shotBody, { skin: "#E8BE9C", hair: "#C9A15E", style: "long", top: "#3A3D42", pants: "#2E4B6E", shoes: "#B3263A" }) +
   pointsSVG(shotBody);
 
-const reco = (v: Vals, fit: FitPreference) => {
+const reco = (v: Vals) => {
   const r = (k: Key) => Math.round(v[k]);
-  return recommend("tee", { h: r("h"), w: r("w"), chest: r("chest"), waist: r("waist"), hips: r("hips") }, fit);
+  return recommend("tee", { h: r("h"), w: r("w"), chest: r("chest"), waist: r("waist"), hips: r("hips") }, "normale");
 };
 
 /* ---------- Mannequin : déformation et repères de mesure ---------- */
@@ -68,11 +89,25 @@ function morph(v: Vals) {
   const bmi = (kg: number, cm: number) => kg / (cm / 100) ** 2;
   const sy = 1 + 1.3 * (v.h / BASE.h - 1);
   const sx = clamp(1 + 2 * (Math.sqrt(bmi(v.w, v.h) / bmi(BASE.w, BASE.h)) - 1), 0.78, 1.35);
-  const est = estimateBody(v.h, v.w);
+  const est = estimateBodyExact(v.h, v.w);
   const k = (key: BodyKey) => clamp(1 + 2.5 * (v[key] / est[key] - 1), 0.85, 1.2);
   return { sx, sy, chest: k("chest"), waist: k("waist"), hips: k("hips") };
 }
-const around = (ox: number, oy: number, x: number, y: number) =>
+/**
+ * Pendant l'analyse, le mannequin passe de sa silhouette d'avant (`from`) à celle des valeurs lues
+ * (`to`) : chaque partie du buste s'élargit quand son tour est lu, bras et jambes suivent l'avancée
+ * de l'ensemble. Une partie pas encore lue garde sa largeur, même quand la corpulence augmente.
+ */
+function blend(from: Vals, to: Vals, read: Read) {
+  const a = morph(from);
+  const b = morph(to);
+  const lerp = (x: number, y: number, t: number) => x + (y - x) * t;
+  const all = (read.chest + read.waist + read.hips) / 3;
+  const sx = lerp(a.sx, b.sx, all);
+  const k = (key: BodyKey) => lerp(a.sx * a[key], b.sx * b[key], read[key]) / sx;
+  return { sx, sy: lerp(a.sy, b.sy, all), chest: k("chest"), waist: k("waist"), hips: k("hips") };
+}
+const around =(ox: number, oy: number, x: number, y: number) =>
   `translate(${ox} ${oy}) scale(${x.toFixed(4)} ${y.toFixed(4)}) translate(${-ox} ${-oy})`;
 const AXIS = 362;
 const FEET_Y = 972;
@@ -114,9 +149,9 @@ const OVERLAY = {
   ).join(""),
 };
 
-const Star = () => (
-  <svg viewBox="0 0 16 16" aria-hidden="true">
-    <path d="M8 0c.6 4.6 3.4 7.4 8 8-4.6.6-7.4 3.4-8 8-.6-4.6-3.4-7.4-8-8 4.6-.6 7.4-3.4 8-8Z" fill="currentColor" />
+const Lock = () => (
+  <svg className="hd-lock" viewBox="0 0 16 16">
+    <path d="M5 7V5a3 3 0 0 1 6 0v2M3.75 7h8.5v6.5h-8.5z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
   </svg>
 );
 const Letters = ({ word, from }: { word: string; from: number }) =>
@@ -132,18 +167,19 @@ export function HeroDemo() {
   const [words, setWords] = useState(false);
   // Change à chaque tour de boucle : le t-shirt et le bouton sont recréés et rejouent leur entrée (CSS).
   const [round, setRound] = useState(0);
-  const [val, setVal] = useState<Vals>(BASE);
-  const [fit, setFit] = useState<FitPreference>("normale");
-  const [face, setFace] = useState<Face>("mesures");
-  const [step, setStep] = useState<Record<Face, Step>>({ mesures: 1, photo: 1 });
+  const [val, setVal] = useState<Vals>(START);
+  const [read, setRead] = useState<Read>(READ_ALL);
+  // Valeurs d'avant l'analyse, d'où part la silhouette du mannequin (voir `blend`).
+  const [from, setFrom] = useState<Vals | null>(null);
+  const [step, setStep] = useState<Step>(1);
   const [res, setRes] = useState<SizeResult | null>(null);
-  const [busy, setBusy] = useState<{ face: Face; label: string; ms: number } | null>(null);
+  const [busy, setBusy] = useState<{ label: string; ms: number } | null>(null);
   const [photo, setPhoto] = useState(false);
   const [scan, setScan] = useState(false);
   const [chip, setChip] = useState<SizeResult | null>(null);
   const [down, setDown] = useState<string | null>(null);
-  // Réglage mis en avant (champ, règle ou ruban) ; « body » : les trois tours à la fois.
-  const [active, setActive] = useState<Key | "body" | null>(null);
+  // Réglage mis en avant (champ, règle ou ruban).
+  const [active, setActive] = useState<Shown | null>(null);
   const [svg, setSvg] = useState("");
 
   const stageRef = useRef<HTMLDivElement>(null);
@@ -185,7 +221,7 @@ export function HeroDemo() {
   useEffect(() => {
     const root = mqRef.current?.querySelector("svg");
     if (!root?.querySelector(".hd-tape")) return;
-    const m = morph(val);
+    const m = from ? blend(from, val, read) : morph(val);
     const $ = (sel: string) => root.querySelector(sel);
     const set = (sel: string, t: string) => $(sel)?.setAttribute("transform", t);
     const sx = (k: number) => around(AXIS, 0, k, 1);
@@ -211,7 +247,7 @@ export function HeroDemo() {
       const y = TAPES[key].b[1];
       tape.querySelector(".hd-pill")?.setAttribute("transform", `translate(${LABEL_X} ${y}) scale(${1 / (m.sx * m[key])} ${1 / m.sy})`);
       const text = tape.querySelector("text");
-      if (text) text.textContent = `${LABEL[key]} ${Math.round(val[key])}`;
+      if (text) text.textContent = `${LABEL[key]} ${Math.round(shown(val, read, key))}`;
     }
 
     // Règle de hauteur : du sol au sommet de la tête (qui garde sa taille, voir #groupe-tete).
@@ -233,20 +269,21 @@ export function HeroDemo() {
       const text = ruler.querySelector("text");
       if (text) text.textContent = `${Math.round(val.h)} cm`;
     }
-  }, [svg, val]);
+  }, [svg, val, read, from]);
 
-  // Repères affichés : la règle à l'étape 1, les rubans ensuite ; celui qu'on règle est mis en avant.
+  // Repères affichés : la règle à l'étape 1, les rubans ensuite ; ceux qui bougent sont mis en avant
+  // (liste séparée par des espaces, lue en CSS avec [data-active~=…]).
   // Le t-shirt habille le mannequin une fois la taille conseillée (après « Voir ma taille »).
-  const shown = step[face];
   useEffect(() => {
     const root = mqRef.current?.querySelector("svg");
     if (!root) return;
-    root.classList.toggle("hd-show-ruler", scene === "modal" && shown === 1);
-    root.classList.toggle("hd-show-tapes", scene === "modal" && shown > 1);
-    root.classList.toggle("hd-dressed", scene === "modal" && shown === 3);
-    if (active) root.dataset.active = active;
+    root.classList.toggle("hd-show-ruler", scene === "modal" && step === 1);
+    root.classList.toggle("hd-show-tapes", scene === "modal" && step > 1);
+    root.classList.toggle("hd-dressed", scene === "modal" && step === 3);
+    const lit = [...(active ? [active] : []), ...filling(read)];
+    if (lit.length) root.dataset.active = lit.join(" ");
     else delete root.dataset.active;
-  }, [svg, scene, shown, active]);
+  }, [svg, scene, step, active, read]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -255,13 +292,11 @@ export function HeroDemo() {
 
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
       // Pas d'animation : la modale reste ouverte sur la taille conseillée.
-      const v = { ...withBody(166, 58), chest: 90, waist: 71, hips: 93 };
-      const r = reco(v, "ample");
+      const r = reco(SHOT);
       setScene("modal");
       setWords(true);
-      setVal(v);
-      setFit("ample");
-      setStep({ mesures: 3, photo: 1 });
+      setVal(SHOT);
+      setStep(3);
       setRes(r);
       setChip(r);
       return;
@@ -311,15 +346,13 @@ export function HeroDemo() {
         raf = requestAnimationFrame(tick);
       }).then(check);
 
-    // Valeurs courantes. Changer la taille ou le poids réestime les tours, comme dans le widget.
-    const cur: Vals = { ...BASE };
-    let curFit: FitPreference = "normale";
+    // Valeurs courantes. Changer la taille réestime les tours, jusqu'à ce que l'analyse les lise.
+    const cur: Vals = { ...START };
     const update = (patch: Partial<Vals>) => {
       Object.assign(cur, patch);
-      if ("h" in patch || "w" in patch) Object.assign(cur, estimateBody(cur.h, cur.w));
+      if ("h" in patch) Object.assign(cur, estimateBodyExact(cur.h, cur.w));
       setVal({ ...cur });
     };
-    const goTo = (f: Face, s: Step) => setStep((prev) => ({ ...prev, [f]: s }));
 
     // Faux curseur : la pointe de la flèche est le coin haut gauche de l'élément.
     let cx = 0;
@@ -344,7 +377,7 @@ export function HeroDemo() {
       await sleep(ms + 60);
     };
     /** Centre du rond d'un curseur de réglage pour la valeur `v` (même calcul que `left` en CSS). */
-    const thumbAt = (key: string, k: Key, v: number): [number, number] => {
+    const thumbAt = (key: string, k: Shown, v: number): [number, number] => {
       const node = targets.current[key];
       if (!node) return [cx, cy];
       const r = rel(node);
@@ -362,8 +395,8 @@ export function HeroDemo() {
       await sleep(150);
     };
     /** Attrape le rond d'un curseur de réglage, le fait glisser par étapes, puis le relâche. */
-    const slide = async (f: Face, k: Key, stops: [number, number][]) => {
-      const key = `range-${f}-${k}`;
+    const slide = async (k: Shown, stops: [number, number][]) => {
+      const key = `range-${k}`;
       const [x, y] = thumbAt(key, k, cur[k]);
       place(x, y, 600);
       await sleep(650);
@@ -385,25 +418,28 @@ export function HeroDemo() {
       setActive(null);
       await sleep(200);
     };
-    /** Les trois tours glissent ensemble vers leurs valeurs, comme s'ils se remplissaient tout seuls. */
-    const fillBody = async (to: Record<BodyKey, number>, ms: number) => {
-      const a = { chest: cur.chest, waist: cur.waist, hips: cur.hips };
-      setActive("body");
-      await tween(ms, (e) =>
-        update({ chest: a.chest + (to.chest - a.chest) * e, waist: a.waist + (to.waist - a.waist) * e, hips: a.hips + (to.hips - a.hips) * e }),
+    /**
+     * L'analyse lit les trois tours sur la photo, en décalé : chaque curseur verrouillé se met à monter
+     * seul `gap` ms après le précédent, sans attendre qu'il ait fini, pendant que la partie du
+     * mannequin qu'il mesure s'élargit.
+     */
+    const analyse = async (ms: number, gap: number) => {
+      await Promise.all(
+        BODY.map(async (key, i) => {
+          await sleep(i * gap);
+          await tween(ms, (e) => setRead((r) => ({ ...r, [key]: e })));
+        }),
       );
-      await sleep(200);
-      setActive(null);
-      await sleep(200);
+      await sleep(350);
     };
-    const loading = async (f: Face, ms: number, label: string) => {
-      setBusy({ face: f, label, ms });
+    const loading = async (ms: number, label: string) => {
+      setBusy({ label, ms });
       await sleep(ms);
       setBusy(null);
     };
-    const showResult = (f: Face) => {
-      const r = reco(cur, curFit);
-      goTo(f, 3);
+    const showResult = () => {
+      const r = reco(cur);
+      setStep(3);
       setRes(r);
       setChip(r);
     };
@@ -414,21 +450,20 @@ export function HeroDemo() {
           await whenVisible();
           if (loop > 0) {
             setScene("off");
-            setFace("mesures");
-            setStep({ mesures: 1, photo: 1 });
+            setStep(1);
             setRes(null);
             setPhoto(false);
             setScan(false);
             setChip(null);
-            curFit = "normale";
-            setFit(curFit);
-            update(withBody(BASE.h, BASE.w));
-            await sleep(600);
+            update(START);
+            // Tout est déjà effacé : une courte pause suffit avant de rejouer l'entrée.
+            await sleep(150);
             setRound(loop);
             setScene("intro");
           }
-          // Le temps que le t-shirt et le bouton fassent leur entrée.
-          await sleep(1900);
+          // Le temps que le t-shirt et le bouton fassent leur entrée ; aux tours suivants, le curseur
+          // part pendant que le bouton finit la sienne (il l'a achevée quand le curseur l'atteint).
+          await sleep(loop > 0 ? 1000 : 1900);
 
           // Le curseur entre par le bas et clique : le logo et la modale apparaissent.
           const s = stage.getBoundingClientRect();
@@ -440,69 +475,44 @@ export function HeroDemo() {
             setScene("modal");
             setWords(true);
           });
-          await sleep(1300);
+          await sleep(1100);
 
-          // 1. Mes mesures : taille et poids…
-          await slide("mesures", "h", [
-            [186, 950],
-            [166, 950],
-          ]);
-          await slide("mesures", "w", [
-            [84, 950],
-            [58, 950],
-          ]);
-          await moveTo("cta-mesures", 650);
-          await press("cta-mesures", () => goTo("mesures", 2));
-          await sleep(900);
-          // … puis les tours, ajustés à la main, et la coupe préférée.
-          await slide("mesures", "chest", [[90, 750]]);
-          await slide("mesures", "waist", [[71, 650]]);
-          await slide("mesures", "hips", [[93, 700]]);
-          await moveTo("fit-mesures-ample", 650);
-          await press("fit-mesures-ample", () => {
-            curFit = "ample";
-            setFit(curFit);
-          });
-          await sleep(300);
-          await moveTo("cta2-mesures", 600);
-          await press("cta2-mesures", () => {});
-          await loading("mesures", 1000, "Calcul de votre taille…");
-          showResult("mesures");
-          await sleep(2500);
-
-          // 2. Caméra : nouveau clic sur le bouton, la modale se retourne.
-          await moveTo("btn", 1000);
-          await press("btn", () => {
-            setChip(null);
-            curFit = "normale";
-            setFit(curFit);
-            setFace("photo");
-          });
-          await sleep(1000);
+          // 1. Une photo de face, puis la taille : le seul réglage que fait le client.
           await moveTo("drop", 700);
           await press("drop", () => setPhoto(true));
-          await sleep(700);
+          await sleep(600);
+          await slide("h", [
+            [185, 850],
+            [SHOT.h, 700],
+          ]);
           await moveTo("cta-photo", 650);
           await press("cta-photo", () => setScan(true));
-          await loading("photo", 1800, "Analyse de la photo…");
-          // La taille et le poids lus sur la photo arrivent dans les curseurs, le mannequin suit…
-          const from = { ...cur };
-          await tween(900, (e) => update({ h: from.h + (SHOT.h - from.h) * e, w: from.w + (SHOT.w - from.w) * e }));
-          await sleep(300);
-          goTo("photo", 2);
-          await sleep(700);
-          // … puis les tours mesurés, tous ensemble.
-          await fillBody({ chest: SHOT.chest, waist: SHOT.waist, hips: SHOT.hips }, 1200);
-          await moveTo("cta2-photo", 700);
-          await press("cta2-photo", () => {});
-          await loading("photo", 900, "Calcul de votre taille…");
-          showResult("photo");
-          await sleep(3000);
+          await loading(1800, "Analyse de la photo…");
+
+          // 2. Analyse : rien à régler, le curseur s'écarte de la modale et les tours se remplissent seuls.
+          // Les valeurs lues (corpulence comprise) sont prises d'emblée ; curseurs et mannequin les rejoignent au fil de la lecture.
+          setFrom({ ...cur });
+          update({ w: SHOT.w, chest: SHOT.chest, waist: SHOT.waist, hips: SHOT.hips });
+          setRead({ chest: 0, waist: 0, hips: 0 });
+          setStep(2);
+          const modal = targets.current.modal;
+          if (modal) {
+            const r = rel(modal);
+            place(Math.min(r.x + r.w + 48, stage.getBoundingClientRect().width - 32), r.y + r.h * 0.42, 700);
+          }
+          await sleep(500);
+          await analyse(1600, 650);
+          await moveTo("cta2", 800);
+          await press("cta2", () => {});
+          await loading(900, "Calcul de votre taille…");
+          showResult();
+          await sleep(3200);
 
           cursor.style.opacity = "0";
           setWords(false);
           setScene("out");
-          await sleep(900);
+          // Juste le temps que tout s'efface (le mannequin, le plus lent, en 0,65 s).
+          await sleep(700);
         }
       } catch (e) {
         if (e !== STOP) throw e;
@@ -520,146 +530,140 @@ export function HeroDemo() {
 
   const isDown = (key: string) => (down === key ? " is-down" : "");
 
-  const slider = (f: Face, k: Key) => (
-    <div className={active === k || (active === "body" && k !== "h" && k !== "w") ? "hd-field is-active" : "hd-field"} key={k}>
-      <span className="hd-label">{FIELD[k].label}</span>
-      <span className="hd-out">
-        {Math.round(val[k])} {FIELD[k].unit}
-      </span>
-      <span
-        ref={target(`range-${f}-${k}`)}
-        className={`hd-range${isDown(`range-${f}-${k}`)}`}
-        style={{ "--p": ((val[k] - RANGE[k][0]) / (RANGE[k][1] - RANGE[k][0])).toFixed(4) } as CSSProperties}
-      >
-        <i />
-      </span>
-    </div>
-  );
-
-  const progress = (f: Face) => {
-    const load = busy?.face === f ? busy : null;
+  // Les tours lus sur la photo ont des curseurs verrouillés (rond grisé, cadenas) qui bougent seuls.
+  const slider = (k: Shown) => {
+    const auto = k !== "h";
+    const v = shown(val, read, k);
+    const on = active === k || (k !== "h" && filling(read).includes(k));
     return (
-      <span className={load ? "hd-progress on" : "hd-progress"} style={{ "--ms": `${load?.ms ?? 0}ms` } as CSSProperties}>
-        <i />
-      </span>
-    );
-  };
-  const cta = (f: Face, key: string, label: string, off = false) => {
-    const load = busy?.face === f ? busy : null;
-    return (
-      <span ref={target(key)} className={`hd-cta${off ? " is-off" : ""}${load ? " is-busy" : ""}${isDown(key)}`}>
-        {load ? load.label : label}
-      </span>
-    );
-  };
-
-  const renderFace = (f: Face) => {
-    const s = step[f];
-    const done = s === 3 ? res : null;
-    return (
-      <div className={`hd-face hd-face--${f}`}>
-        <div className="hd-top">
-          <span className="hd-brand">
-            <Star />
-            SwiftStyle
-          </span>
-          <span className="hd-close">
-            <svg viewBox="0 0 16 16">
-              <path d="M3 3l10 10M13 3 3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          </span>
-        </div>
-        <p className="hd-title">{TITLES[s]}</p>
-        <div className="hd-steps">
-          {[1, 2, 3].map((n) => (
-            <i key={n} className={n <= s ? "on" : undefined} />
-          ))}
-        </div>
-
-        <div className="hd-step" key={s}>
-          {s === 1 && (
-            <>
-              <div className="hd-tabs">
-                <span className={f === "mesures" ? "on" : undefined}>Mes mesures</span>
-                <span className={f === "photo" ? "on" : undefined}>Caméra</span>
-              </div>
-              {f === "mesures" ? (
-                <p className="hd-lead">Deux repères suffisent pour estimer votre morphologie.</p>
-              ) : (
-                <div ref={target("drop")} className={`hd-drop${isDown("drop")}`}>
-                  <svg viewBox="0 0 24 24">
-                    <path d="M4 8h3l1.5-2h7L17 8h3v11H4z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                    <circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                  </svg>
-                  <strong>Prendre ou importer une photo</strong>
-                  <small>De face, de la tête aux pieds</small>
-                  <div className={["hd-shot", photo && "on", scan && "scan"].filter(Boolean).join(" ")}>
-                    <div className="hd-shot-img">
-                      <svg viewBox="0 60 300 580" dangerouslySetInnerHTML={{ __html: PHOTO }} />
-                      <i className="hd-scanline" />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {slider(f, "h")}
-              {slider(f, "w")}
-              {f === "mesures" ? cta(f, "cta-mesures", "Continuer") : cta(f, "cta-photo", "Analyser la photo", !photo)}
-              {progress(f)}
-            </>
-          )}
-
-          {s === 2 && (
-            <>
-              <p className="hd-lead">
-                {f === "photo"
-                  ? "Mesurées sur votre photo. Ajustez-les si besoin."
-                  : "Estimées à partir de votre taille et de votre poids. Ajustez-les si vous les connaissez."}
-              </p>
-              {BODY.map((k) => slider(f, k))}
-              <div className="hd-group">
-                <span className="hd-label">Je porte mes vêtements</span>
-                <div className="hd-seg">
-                  {FITS.map((o) => (
-                    <span key={o.value} ref={target(`fit-${f}-${o.value}`)} className={`${fit === o.value ? "on" : ""}${isDown(`fit-${f}-${o.value}`)}`}>
-                      {o.label}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              {cta(f, `cta2-${f}`, "Voir ma taille")}
-              {progress(f)}
-            </>
-          )}
-
-          {done && (
-            <div className="hd-result">
-              <div className="hd-res">
-                <div className="hd-size">
-                  <b>{done.size}</b>
-                </div>
-                <div>
-                  <p className="t">Taille {done.size} conseillée</p>
-                  <p className="s">{Math.round(done.confidence * 100)} % de correspondance pour cet article</p>
-                </div>
-              </div>
-              <ul className="hd-fit">
-                {done.details.map((d) => (
-                  <li key={d.key}>
-                    <span>{FIELD[d.key].label}</span>
-                    <b>{d.feel}</b>
-                    <span className="bar">
-                      <i style={{ left: `${clamp(50 + d.position * 25, 4, 96).toFixed(1)}%` }} />
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <span className="hd-cta">Choisir la taille {done.size}</span>
-            </div>
-          )}
-        </div>
+      <div className={`hd-field${auto ? " is-auto" : ""}${on ? " is-active" : ""}`} key={k}>
+        <span className="hd-label">
+          {FIELD[k].label}
+          {auto && <Lock />}
+        </span>
+        <span className="hd-out">
+          {Math.round(v)} {FIELD[k].unit}
+        </span>
+        <span
+          ref={target(`range-${k}`)}
+          className={`hd-range${isDown(`range-${k}`)}`}
+          style={{ "--p": ((v - RANGE[k][0]) / (RANGE[k][1] - RANGE[k][0])).toFixed(4) } as CSSProperties}
+        >
+          <i />
+        </span>
       </div>
     );
   };
+
+  const progress = (
+    <span className={busy ? "hd-progress on" : "hd-progress"} style={{ "--ms": `${busy?.ms ?? 0}ms` } as CSSProperties}>
+      <i />
+    </span>
+  );
+  const cta = (key: string, label: string, off = false) => (
+    <span ref={target(key)} className={`hd-cta${off ? " is-off" : ""}${busy ? " is-busy" : ""}${isDown(key)}`}>
+      {busy ? busy.label : label}
+    </span>
+  );
+
+  const reading = BODY.some((k) => read[k] < 1);
+  const done = step === 3 ? res : null;
+  const face = (
+    <div ref={target("modal")} className="hd-face">
+      <div className="hd-top">
+        <span className="hd-brand">SwiftStyle</span>
+        <span className="hd-close">
+          <svg viewBox="0 0 16 16">
+            <path d="M3 3l10 10M13 3 3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </span>
+      </div>
+      <p className="hd-title">{TITLES[step]}</p>
+      <div className="hd-steps">
+        {[1, 2, 3].map((n) => (
+          <i key={n} className={n <= step ? "on" : undefined} />
+        ))}
+      </div>
+
+      <div className="hd-step" key={step}>
+        {step === 1 && (
+          <>
+            <div ref={target("drop")} className={`hd-drop${isDown("drop")}`}>
+              <svg viewBox="0 0 24 24">
+                <path d="M4 8h3l1.5-2h7L17 8h3v11H4z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                <circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+              <strong>Prendre ou importer une photo</strong>
+              <small>De face, de la tête aux pieds</small>
+              <div className={["hd-shot", photo && "on", scan && "scan"].filter(Boolean).join(" ")}>
+                <div className="hd-shot-img">
+                  <svg viewBox="0 60 300 580" dangerouslySetInnerHTML={{ __html: PHOTO }} />
+                  <i className="hd-scanline" />
+                </div>
+              </div>
+            </div>
+            {slider("h")}
+            {cta("cta-photo", "Analyser la photo", !photo)}
+            {progress}
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <p className={reading ? "hd-lead hd-read" : "hd-lead hd-read is-done"}>
+              {reading ? (
+                <i />
+              ) : (
+                <svg viewBox="0 0 16 16">
+                  <path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+              {reading ? "Lecture de vos mensurations sur la photo…" : "Mesurées sur votre photo : rien à régler."}
+            </p>
+            {BODY.map((k) => slider(k))}
+            <div className="hd-group">
+              <span className="hd-label">Je porte mes vêtements</span>
+              <div className="hd-seg">
+                {FITS.map((o) => (
+                  <span key={o.value} className={o.value === "normale" ? "on" : undefined}>
+                    {o.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {cta("cta2", "Voir ma taille", reading)}
+            {progress}
+          </>
+        )}
+
+        {done && (
+          <div className="hd-result">
+            <div className="hd-res">
+              <div className="hd-size">
+                <b>{done.size}</b>
+              </div>
+              <div>
+                <p className="t">Taille {done.size} conseillée</p>
+                <p className="s">{Math.round(done.confidence * 100)} % de correspondance pour cet article</p>
+              </div>
+            </div>
+            <ul className="hd-fit">
+              {done.details.map((d) => (
+                <li key={d.key}>
+                  <span>{FIELD[d.key].label}</span>
+                  <b>{d.feel}</b>
+                  <span className="bar">
+                    <i style={{ left: `${clamp(50 + d.position * 25, 4, 96).toFixed(1)}%` }} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <span className="hd-cta">Choisir la taille {done.size}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -685,7 +689,7 @@ export function HeroDemo() {
           <div className="hd-model">
             <div ref={mqRef} className="hd-mq" dangerouslySetInnerHTML={{ __html: svg }} />
             {chip && (
-              <div className="hd-chip" key={`${chip.size}-${face}`}>
+              <div className="hd-chip">
                 <img src={TEE} alt="" width={44} height={43} />
                 <div>
                   <strong>Taille {chip.size} conseillée</strong>
@@ -698,12 +702,7 @@ export function HeroDemo() {
             )}
           </div>
 
-          <div className="hd-modal">
-            <div className={face === "photo" ? "hd-card is-flipped" : "hd-card"}>
-              {renderFace("mesures")}
-              {renderFace("photo")}
-            </div>
-          </div>
+          <div className="hd-modal">{face}</div>
 
           <span key={`btn-${round}`} ref={target("btn")} className={`hd-btn${isDown("btn")}`}>
             Trouver ma taille avec SwiftStyle

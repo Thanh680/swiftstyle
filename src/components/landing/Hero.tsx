@@ -7,8 +7,8 @@ export function Hero() {
       <HeroDemo />
       {/* La démo animée est décorative : ce texte dit aux lecteurs d'écran ce qu'elle montre. */}
       <p className="sr">
-        SwiftStyle ajoute à vos fiches produit un widget qui conseille la bonne taille, à partir d&apos;une photo ou de quelques mesures. Vos
-        clients commandent juste, et le colis ne revient pas.
+        SwiftStyle ajoute à vos fiches produit un widget qui conseille la bonne taille à partir d&apos;une photo : le client indique sa
+        taille, l&apos;analyse mesure le reste. Il commande juste, et le colis ne revient pas.
       </p>
     </section>
   );

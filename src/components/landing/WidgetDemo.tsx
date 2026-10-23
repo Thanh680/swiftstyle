@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { DEMO_ARTICLES, estimateBody, type BodyKey, type DemoArticle, type FitPreference } from "@/lib/recommendation";
 import { asset } from "@/lib/asset";
 import { recommend, type Measures } from "./figures";
@@ -12,14 +12,21 @@ import { recommend, type Measures } from "./figures";
  * est volontairement neutre : elle prend les couleurs, la police et les arrondis de
  * la boutique. Elle utilise le vrai moteur de recommandation (src/lib/recommendation)
  * avec les guides des tailles d'exemple, entièrement dans le navigateur. Le
- * traitement de la photo est simulé.
+ * traitement de la photo est simulé : le client donne seulement sa taille, les tours
+ * « lus » sur la photo se remplissent seuls dans des curseurs verrouillés.
  */
 
-type Tab = "mesures" | "photo";
 type Step = 1 | 2 | 3;
 type View = "face" | "detail";
 
 const LABEL: Record<BodyKey, string> = { chest: "Poitrine", waist: "Tour de taille", hips: "Hanches" };
+const BODY: { key: BodyKey; id: string; label: string; min: number; max: number }[] = [
+  { key: "chest", id: "m-c", label: "Tour de poitrine", min: 70, max: 130 },
+  { key: "waist", id: "m-t", label: "Tour de taille", min: 55, max: 125 },
+  { key: "hips", id: "m-hi", label: "Tour de hanches", min: 75, max: 135 },
+];
+/** Corpulence prêtée à la personne photographiée (IMC de 23), faute de vraie analyse. */
+const shotWeight = (h: number) => Math.round(23 * (h / 100) ** 2);
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 interface Product {
@@ -86,7 +93,7 @@ const FITS: { value: FitPreference; label: string }[] = [
   { value: "normale", label: "Normaux" },
   { value: "ample", label: "Amples" },
 ];
-const TITLES: Record<Step, string> = { 1: "Votre morphologie", 2: "Vos mensurations", 3: "Votre taille" };
+const TITLES: Record<Step, string> = { 1: "Votre photo", 2: "Analyse des mensurations", 3: "Votre taille" };
 
 const zoomOn = (d: Product["detail"]): CSSProperties => ({ transform: `scale(${d.zoom})`, transformOrigin: `${d.x}% ${d.y}%` });
 
@@ -99,13 +106,24 @@ interface SliderProps {
   value: number;
   min: number;
   max: number;
-  onChange: (v: number) => void;
+  /** Sans `onChange`, le curseur est verrouillé : sa valeur vient de l'analyse de la photo. */
+  onChange?: (v: number) => void;
 }
 
 function Slider({ id, label, unit, value, min, max, onChange }: SliderProps) {
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id}>
+        {label}
+        {!onChange && (
+          <>
+            <svg className="w-lock" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M5 7V5a3 3 0 0 1 6 0v2M3.75 7h8.5v6.5h-8.5z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+            </svg>
+            <span className="sr">, mesuré sur la photo</span>
+          </>
+        )}
+      </label>
       <output htmlFor={id}>
         {value} {unit}
       </output>
@@ -116,7 +134,8 @@ function Slider({ id, label, unit, value, min, max, onChange }: SliderProps) {
         max={max}
         step={1}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        disabled={!onChange}
+        onChange={(e) => onChange?.(Number(e.target.value))}
       />
     </div>
   );
@@ -139,13 +158,13 @@ export function WidgetDemo() {
   const [m, setM] = useState<Measures>({ h: 172, w: 68, ...estimateBody(172, 68) });
   const [fit, setFit] = useState<FitPreference>("normale");
   const [step, setStep] = useState<Step>(1);
-  const [tab, setTab] = useState<Tab>("mesures");
-  const [source, setSource] = useState<Tab>("mesures");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [busy, setBusy] = useState<{ tab: Tab; label: string } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  // Analyse en cours : les tours montent seuls dans leurs curseurs.
+  const [reading, setReading] = useState(false);
 
   const barRef = useRef<HTMLElement>(null);
-  const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ mesures: null, photo: null });
+  const readFrame = useRef(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -159,7 +178,13 @@ export function WidgetDemo() {
     };
   }, [photoUrl]);
 
-  useEffect(() => () => clearTimeout(addedTimer.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(addedTimer.current);
+      cancelAnimationFrame(readFrame.current);
+    },
+    [],
+  );
 
   // Précharge les autres coloris de l'article : changer de couleur ne fait pas clignoter la photo.
   useEffect(() => {
@@ -225,29 +250,37 @@ export function WidgetDemo() {
     addedTimer.current = setTimeout(() => setAdded(false), 2200);
   };
 
-  /** Changer la taille ou le poids réestime les tours de mesure, que le client peut ensuite ajuster. */
-  const setMeasure = (key: keyof Measures, value: number) =>
-    setM((prev) => {
-      const next = { ...prev, [key]: value };
-      return key === "h" || key === "w" ? { ...next, ...estimateBody(next.h, next.w) } : next;
-    });
-
-  const selectTab = (t: Tab) => {
-    setTab(t);
-    tabRefs.current[t]?.focus();
-  };
-  const onTabKey = (e: KeyboardEvent) => {
-    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-      e.preventDefault();
-      selectTab(tab === "mesures" ? "photo" : "mesures");
-    }
+  /**
+   * Les tours « lus » sur la photo partent du bas de leur curseur et montent seuls jusqu'à leur
+   * valeur : le client voit qu'il n'a rien à régler.
+   */
+  const readBody = () => {
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const at = (prev: Measures, e: number) => {
+      const w = shotWeight(prev.h);
+      const to = estimateBody(prev.h, w);
+      const next = { ...prev, w };
+      for (const b of BODY) next[b.key] = Math.round(b.min + (to[b.key] - b.min) * e);
+      return next;
+    };
+    cancelAnimationFrame(readFrame.current);
+    setM((prev) => at(prev, 0));
+    setReading(true);
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const k = reduce ? 1 : Math.min(1, (now - t0) / 1500);
+      setM((prev) => at(prev, 1 - (1 - k) ** 3));
+      if (k < 1) readFrame.current = requestAnimationFrame(tick);
+      else setReading(false);
+    };
+    readFrame.current = requestAnimationFrame(tick);
   };
 
   /** Barre de progression, puis affichage du résultat. */
-  function runLoading(from: Tab, ms: number, label: string): Promise<void> {
+  function runLoading(ms: number, label: string): Promise<void> {
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const bar = barRef.current;
-    setBusy({ tab: from, label });
+    setBusy(label);
     if (bar) {
       bar.style.transitionDuration = "0ms";
       bar.style.width = "0";
@@ -278,7 +311,7 @@ export function WidgetDemo() {
         </h2>
         <p>
           Voici une fiche produit telle que vos clients la voient. Le widget est un bouton placé sous le choix des tailles : il ouvre une
-          fenêtre qui conseille la bonne taille à partir de quelques mesures ou d&apos;une photo, puis la sélectionne sur la fiche.
+          fenêtre qui conseille la bonne taille à partir d&apos;une photo, puis la sélectionne sur la fiche.
         </p>
       </div>
 
@@ -438,12 +471,7 @@ export function WidgetDemo() {
                     }}
                   >
                     <div className="w-top">
-                      <span className="w-brand">
-                        <svg viewBox="0 0 16 16" aria-hidden="true">
-                          <path d="M8 0c.6 4.6 3.4 7.4 8 8-4.6.6-7.4 3.4-8 8-.6-4.6-3.4-7.4-8-8 4.6-.6 7.4-3.4 8-8Z" fill="currentColor" />
-                        </svg>
-                        SwiftStyle
-                      </span>
+                      <span className="w-brand">SwiftStyle</span>
                       <button className="w-close" type="button" aria-label="Fermer" onClick={() => setOpen(false)}>
                         <svg viewBox="0 0 16 16" aria-hidden="true">
                           <path d="M3 3l10 10M13 3 3 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
@@ -464,107 +492,60 @@ export function WidgetDemo() {
 
                     {step === 1 && (
                       <>
-                        <div className="w-tabs" role="tablist" aria-label="Méthode" onKeyDown={onTabKey}>
-                          <button
-                            ref={(el) => {
-                              tabRefs.current.mesures = el;
+                        <label className="drop">
+                          <input
+                            className="sr"
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) setPhotoUrl(URL.createObjectURL(file));
                             }}
-                            role="tab"
-                            id="tab-m"
-                            aria-controls="panel-m"
-                            aria-selected={tab === "mesures"}
-                            tabIndex={tab === "mesures" ? 0 : -1}
-                            onClick={() => selectTab("mesures")}
-                          >
-                            Mes mesures
-                          </button>
-                          <button
-                            ref={(el) => {
-                              tabRefs.current.photo = el;
-                            }}
-                            role="tab"
-                            id="tab-p"
-                            aria-controls="panel-p"
-                            aria-selected={tab === "photo"}
-                            tabIndex={tab === "photo" ? 0 : -1}
-                            onClick={() => selectTab("photo")}
-                          >
-                            Caméra
-                          </button>
-                        </div>
-
-                        <div role="tabpanel" id="panel-m" aria-labelledby="tab-m" hidden={tab !== "mesures"}>
-                          <p className="w-lead">Deux repères suffisent pour estimer votre morphologie.</p>
-                          <Slider id="m-h" label="Taille" unit="cm" value={m.h} min={145} max={205} onChange={(v) => setMeasure("h", v)} />
-                          <Slider id="m-w" label="Poids" unit="kg" value={m.w} min={40} max={130} onChange={(v) => setMeasure("w", v)} />
-                          <button
-                            className="w-cta"
-                            type="button"
-                            onClick={() => {
-                              setSource("mesures");
+                          />
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 8h3l1.5-2h7L17 8h3v11H4z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                            <circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                          </svg>
+                          <strong>Prendre ou importer une photo</strong>
+                          <small>De face, de la tête aux pieds</small>
+                          {photoUrl && <img src={photoUrl} alt="Aperçu de votre photo" />}
+                        </label>
+                        <Slider id="p-h" label="Taille" unit="cm" value={m.h} min={145} max={205} onChange={(h) => setM((prev) => ({ ...prev, h }))} />
+                        <p className="w-note">
+                          Démo : la photo reste sur votre appareil, rien n&apos;est envoyé. Les mensurations sont simulées.
+                        </p>
+                        <button
+                          className="w-cta"
+                          type="button"
+                          disabled={!photoUrl || busy !== null}
+                          aria-busy={busy !== null}
+                          onClick={() =>
+                            runLoading(1700, "Analyse de la photo…").then(() => {
                               setStep(2);
-                            }}
-                          >
-                            Continuer
-                          </button>
-                        </div>
-
-                        <div role="tabpanel" id="panel-p" aria-labelledby="tab-p" hidden={tab !== "photo"}>
-                          <label className="drop">
-                            <input
-                              className="sr"
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) setPhotoUrl(URL.createObjectURL(file));
-                              }}
-                            />
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                              <path d="M4 8h3l1.5-2h7L17 8h3v11H4z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                              <circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                            </svg>
-                            <strong>Prendre ou importer une photo</strong>
-                            <small>De face, de la tête aux pieds</small>
-                            {photoUrl && <img src={photoUrl} alt="Aperçu de votre photo" />}
-                          </label>
-                          {/* Côte à côte : avec la zone photo, l'onglet tient dans la modale sans défiler. */}
-                          <div className="w-pair">
-                            <Slider id="p-h" label="Taille" unit="cm" value={m.h} min={145} max={205} onChange={(v) => setMeasure("h", v)} />
-                            <Slider id="p-w" label="Poids" unit="kg" value={m.w} min={40} max={130} onChange={(v) => setMeasure("w", v)} />
-                          </div>
-                          <p className="w-note">
-                            Démo : la photo reste sur votre appareil, rien n&apos;est envoyé. Les mensurations sont simulées.
-                          </p>
-                          <button
-                            className="w-cta"
-                            type="button"
-                            disabled={!photoUrl || busy !== null}
-                            aria-busy={busy?.tab === "photo"}
-                            onClick={() =>
-                              runLoading("photo", 1700, "Analyse de la photo…").then(() => {
-                                setM((prev) => ({ ...prev, ...estimateBody(prev.h, prev.w) }));
-                                setSource("photo");
-                                setStep(2);
-                              })
-                            }
-                          >
-                            {busy?.tab === "photo" ? busy.label : "Analyser la photo"}
-                          </button>
-                        </div>
+                              readBody();
+                            })
+                          }
+                        >
+                          {busy ?? "Analyser la photo"}
+                        </button>
                       </>
                     )}
 
                     {step === 2 && (
                       <>
-                        <p className="w-lead">
-                          {source === "photo"
-                            ? "Mesurées sur votre photo. Ajustez-les si besoin."
-                            : "Estimées à partir de votre taille et de votre poids. Ajustez-les si vous les connaissez."}
+                        <p className={reading ? "w-lead w-read" : "w-lead w-read is-done"} aria-live="polite">
+                          {reading ? (
+                            <i aria-hidden="true" />
+                          ) : (
+                            <svg viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                          {reading ? "Lecture de vos mensurations sur la photo…" : "Mesurées sur votre photo : vous n'avez rien à régler."}
                         </p>
-                        <Slider id="m-c" label="Tour de poitrine" unit="cm" value={m.chest} min={70} max={130} onChange={(v) => setMeasure("chest", v)} />
-                        <Slider id="m-t" label="Tour de taille" unit="cm" value={m.waist} min={55} max={125} onChange={(v) => setMeasure("waist", v)} />
-                        <Slider id="m-hi" label="Tour de hanches" unit="cm" value={m.hips} min={75} max={135} onChange={(v) => setMeasure("hips", v)} />
+                        {BODY.map((b) => (
+                          <Slider key={b.key} id={b.id} label={b.label} unit="cm" value={m[b.key]} min={b.min} max={b.max} />
+                        ))}
                         <fieldset className="w-group">
                           <legend>Je porte mes vêtements</legend>
                           <div className="w-seg">
@@ -579,11 +560,11 @@ export function WidgetDemo() {
                         <button
                           className="w-cta"
                           type="button"
-                          disabled={busy !== null}
-                          aria-busy={busy?.tab === "mesures"}
-                          onClick={() => runLoading("mesures", 900, "Calcul de votre taille…").then(() => setStep(3))}
+                          disabled={busy !== null || reading}
+                          aria-busy={busy !== null}
+                          onClick={() => runLoading(900, "Calcul de votre taille…").then(() => setStep(3))}
                         >
-                          {busy?.tab === "mesures" ? busy.label : "Voir ma taille"}
+                          {busy ?? "Voir ma taille"}
                         </button>
                       </>
                     )}
@@ -619,8 +600,8 @@ export function WidgetDemo() {
                       <i ref={barRef} />
                     </div>
                     {step > 1 && (
-                      <button className="w-back" type="button" disabled={busy !== null} onClick={() => setStep(step === 3 ? 2 : 1)}>
-                        {step === 3 ? "Modifier mes mensurations" : "Retour"}
+                      <button className="w-back" type="button" disabled={busy !== null || reading} onClick={() => setStep(step === 3 ? 2 : 1)}>
+                        {step === 3 ? "Revoir l'analyse" : "Changer de photo"}
                       </button>
                     )}
                   </div>

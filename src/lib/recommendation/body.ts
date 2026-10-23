@@ -12,10 +12,16 @@ const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(mi
  * marqués `basis: "estimated"` par l'API.
  */
 export function estimateBody(heightCm: number, weightKg: number): Required<Body> {
+  const b = estimateBodyExact(heightCm, weightKg);
+  return { chest: Math.round(b.chest), waist: Math.round(b.waist), hips: Math.round(b.hips) };
+}
+
+/** Comme `estimateBody`, sans arrondi au centimètre : les tours varient en continu avec la taille et le poids. */
+export function estimateBodyExact(heightCm: number, weightKg: number): Required<Body> {
   return {
-    chest: Math.round(clamp(0.62 * weightKg + 0.25 * heightCm + 10, 70, 130)),
-    waist: Math.round(clamp(0.85 * weightKg + 0.1 * heightCm + 3, 55, 125)),
-    hips: Math.round(clamp(0.55 * weightKg + 0.3 * heightCm + 8, 75, 135)),
+    chest: clamp(0.62 * weightKg + 0.25 * heightCm + 10, 70, 130),
+    waist: clamp(0.85 * weightKg + 0.1 * heightCm + 3, 55, 125),
+    hips: clamp(0.55 * weightKg + 0.3 * heightCm + 8, 75, 135),
   };
 }
 
