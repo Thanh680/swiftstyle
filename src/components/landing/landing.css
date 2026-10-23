@@ -85,9 +85,6 @@ a{color:inherit}
 }
 .logo{display:flex;align-items:center;gap:10px;text-decoration:none;font:800 1.35rem/1 var(--display);font-stretch:120%;letter-spacing:-.03em}
 .logo img{width:auto;height:40px}
-.nav ul{display:flex;gap:28px;list-style:none;margin:0;padding:0}
-.nav ul a{text-decoration:none;font-weight:600}
-.nav ul a:hover{text-decoration:underline;text-underline-offset:4px}
 .nav .btn{padding:.75em 1.15em;font-size:.95rem}
 
 /* ============ Hero ============ */
@@ -382,7 +379,6 @@ a{color:inherit}
 @keyframes hd-ripple{from{opacity:.75;transform:scale(.3)}to{opacity:0;transform:scale(1.5)}}
 
 @media (max-width:900px){
-  .nav ul{display:none}
   .hero{display:flex;flex-direction:column;min-height:auto;padding-top:80px}
   .hw{font-size:30vw}
   .hw--top{order:1}.hd{order:2}.hw--bottom{order:3}
